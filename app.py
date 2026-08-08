@@ -27,7 +27,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 CONTACT_EMAIL = "example@example.com"  # CrossRefへの礼儀としての連絡先（任意）
 
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.3.0"
 # 自動更新チェック用URL（任意）。先生がJSONを置いたURLを入れると、
 # 起動時に新版の有無を知らせます（コードは自動では置き換えません＝安全）。
 # 例: "https://raw.githubusercontent.com/<ユーザー>/<リポジトリ>/main/latest.json"
@@ -135,6 +135,50 @@ def fetch_crossref(q, count):
             "doi": it.get("DOI", "") or "",
             "type": it.get("type", ""),
             "url": ("https://doi.org/" + it["DOI"]) if it.get("DOI") else "",
+        })
+    return out
+
+
+# ----------------------------------------------------------------------
+#  OpenAlex 取り込み（国際・広域／Google Scholar 相当・無料・キー不要）
+# ----------------------------------------------------------------------
+def fetch_openalex(q, count):
+    url = ("https://api.openalex.org/works?"
+           + urllib.parse.urlencode({"search": q, "per_page": count, "mailto": CONTACT_EMAIL}))
+    req = urllib.request.Request(
+        url, headers={"User-Agent": "PsychPaperApp/1.0 (mailto:%s)" % CONTACT_EMAIL})
+    with urllib.request.urlopen(req, timeout=20) as r:
+        data = json.loads(r.read().decode("utf-8"))
+    out = []
+    for it in data.get("results", []):
+        authors = []
+        for a in it.get("authorships", []):
+            name = ((a.get("author") or {}).get("display_name") or "").strip()
+            parts = name.split()
+            if len(parts) >= 2:
+                fam, giv = parts[-1], " ".join(parts[:-1])
+            else:
+                fam, giv = name, ""
+            authors.append({"family": fam, "given": giv, "raw": name})
+        loc = (it.get("primary_location") or {}).get("source") or {}
+        b = it.get("biblio") or {}
+        doi = it.get("doi") or ""
+        if doi.startswith("http"):
+            doi = doi.split("doi.org/", 1)[-1]
+        out.append({
+            "source": "OpenAlex",
+            "authors": authors,
+            "title": clean(it.get("title") or it.get("display_name") or ""),
+            "journal": clean(loc.get("display_name") or ""),
+            "publisher": "",
+            "year": str(it.get("publication_year") or ""),
+            "volume": num(b.get("volume")),
+            "number": num(b.get("issue")),
+            "spage": num(b.get("first_page")),
+            "epage": num(b.get("last_page")),
+            "doi": doi,
+            "type": it.get("type") or "",
+            "url": it.get("doi") or (it.get("id") or ""),
         })
     return out
 
@@ -294,8 +338,8 @@ def build_docx(model):
     counter = [0]
     body = []
 
-    def run(text, bold=False, sz=21):
-        rpr = FONT_RPR + ("<w:b/>" if bold else "")
+    def run(text, bold=False, sz=21, italic=False):
+        rpr = FONT_RPR + ("<w:b/>" if bold else "") + ("<w:i/>" if italic else "")
         rpr += '<w:sz w:val="%d"/><w:szCs w:val="%d"/>' % (sz, sz)
         return ('<w:r><w:rPr>%s</w:rPr><w:t xml:space="preserve">%s</w:t></w:r>'
                 % (rpr, _xesc(text)))
@@ -305,6 +349,13 @@ def build_docx(model):
         if align:
             ppr += '<w:jc w:val="%s"/>' % align
         return '<w:p><w:pPr>%s</w:pPr>%s</w:p>' % (ppr, run(text, bold, sz))
+
+    def refpara(runs, sz=21):
+        # 引用文献1件：ラン配列を装飾つきで1段落に（ぶら下げインデント）
+        ppr = ('<w:spacing w:before="0" w:after="60"/>'
+               '<w:ind w:left="480" w:hanging="480"/>')
+        body_runs = "".join(run(r.get("t", ""), bold=r.get("b"), sz=sz, italic=r.get("i")) for r in (runs or []))
+        return '<w:p><w:pPr>%s</w:pPr>%s</w:p>' % (ppr, body_runs)
 
     def para_multi(text, sz=21):
         parts = (text or "").split("\n")
@@ -414,6 +465,8 @@ def build_docx(model):
                              before=240, after=80))
         elif t == "para":
             body.append(para_multi(blk.get("text", "")))
+        elif t == "refpara":
+            body.append(refpara(blk.get("runs", [])))
         elif t == "table":
             cap = blk.get("label", "") + ("　" + blk["caption"] if blk.get("caption") else "")
             body.append(para(cap, bold=True, sz=20, before=140, after=40))
@@ -517,7 +570,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, json.dumps({"items": []}))
                 return
             try:
-                items = fetch_crossref(q, count) if source == "crossref" else fetch_cinii(q, count)
+                if source == "crossref":
+                    items = fetch_crossref(q, count)
+                elif source == "openalex":
+                    items = fetch_openalex(q, count)
+                else:
+                    items = fetch_cinii(q, count)
                 self._send(200, json.dumps({"items": items}, ensure_ascii=False))
             except Exception as e:  # noqa
                 self._send(200, json.dumps({"error": str(e)}, ensure_ascii=False))
@@ -599,8 +657,18 @@ header{background:var(--blue);color:#fff;padding:12px 20px;position:sticky;top:0
 header h1{font-size:17px;margin:0;font-weight:700}
 header .sub{font-size:12px;color:#dce9f7}
 .nav{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
-.nav button{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:14px;padding:4px 11px;font-size:12px}
+.nav button{background:rgba(255,255,255,.18);color:#fff;border:0;border-radius:14px 14px 0 0;padding:6px 14px;font-size:13px;position:relative;top:1px}
 .nav button:hover{background:rgba(255,255,255,.34)}
+.nav button.active{background:#fff;color:var(--blue);font-weight:700}
+.nav button .tabmark{margin-left:5px;font-size:11px;opacity:.85}
+.tabpane{display:none}
+.tabpane.active{display:block;animation:fadein .15s ease}
+@keyframes fadein{from{opacity:.4}to{opacity:1}}
+.pane-head{font-size:16px;color:#fff;background:var(--blue);border-radius:8px;padding:8px 14px;margin:0 0 12px;font-weight:700;display:flex;justify-content:space-between;align-items:center}
+.pane-nav{display:flex;justify-content:space-between;margin-top:8px;gap:8px}
+.pane-nav button{background:#fff;color:var(--blue);border:1px solid var(--blue);border-radius:8px;padding:7px 12px;font-size:13px}
+.pane-nav button:hover{background:#eef3fa}
+.pane-nav button:disabled{opacity:.4;cursor:default;background:#fff}
 .pbar{height:6px;background:rgba(255,255,255,.25);border-radius:4px;margin-top:9px;overflow:hidden}
 .pbar>i{display:block;height:100%;background:#fff;width:0;transition:width .25s}
 .pnum{font-size:11.5px;color:#dce9f7;margin-top:4px}
@@ -676,7 +744,7 @@ footer{max-width:1320px;margin:0 auto 40px;padding:0 18px;color:var(--gray);font
 <header>
   <div class="htop">
     <h1>心理学 論文執筆アプリ（全体版）</h1>
-    <span class="sub">各セクションを順に書く → 文献をCiNii/CrossRefから取り込む → 引用に自動反映</span>
+    <span class="sub">上のタブでページを切り替えて書く → 文献は右側で検索・管理（常に表示）</span>
   </div>
   <div class="nav" id="nav"></div>
   <div class="pbar"><i id="pbarfill"></i></div>
@@ -693,17 +761,29 @@ footer{max-width:1320px;margin:0 auto 40px;padding:0 18px;color:var(--gray);font
       <h2>📚 文献をさがして取り込む</h2>
       <div class="srcrow">
         <label><input type="radio" name="src" value="cinii" checked> CiNii（和文）</label>
+        <label><input type="radio" name="src" value="openalex"> OpenAlex（国際）</label>
         <label><input type="radio" name="src" value="crossref"> CrossRef（欧文）</label>
       </div>
       <div class="searchbar">
         <input type="text" id="q" placeholder="例）孤独感 SNS 大学生 / loneliness social media">
         <button id="searchBtn">検索</button>
       </div>
+      <div class="export" style="margin-bottom:8px">
+        <button class="ghost sm" id="scholarBtn" title="入力した語でGoogle Scholarをブラウザで開きます">🔎 Google Scholarで開く</button>
+      </div>
       <div class="status" id="status"></div>
       <div class="results" id="results" style="display:none"></div>
 
       <h2 style="margin-top:6px">📝 引用文献リスト <span id="refcount" class="sub" style="color:var(--gray)"></span></h2>
-      <div class="tip">並び順：著者姓のアルファベット／五十音順（自動）。和文は「よみ」欄に読みを入れると正確に並びます。</div>
+      <div class="srcrow" style="margin-bottom:4px">
+        <label style="color:var(--blue-d);font-weight:600">投稿規定：</label>
+        <select id="styleSel" class="reading" style="width:auto;flex:1">
+          <option value="jpa">日本心理学会（心理学研究）</option>
+          <option value="ajcp">日本心理臨床学会（心理臨床学研究）</option>
+          <option value="jhp">日本人間性心理学会（人間性心理学研究）</option>
+        </select>
+      </div>
+      <div class="tip">選んだ学会の書式で自動整形します。並び順は第1著者姓のアルファベット／五十音順（和文は「よみ」欄で調整可）。</div>
       <ul class="reflist" id="reflist"></ul>
       <div class="empty" id="refempty">まだ文献がありません。上で検索して「文献に追加」を押してください。</div>
       <div class="export"><button class="ghost sm" id="copyRefs">引用文献リストをコピー</button></div>
@@ -741,7 +821,7 @@ footer{max-width:1320px;margin:0 auto 40px;padding:0 18px;color:var(--gray);font
 </div>
 
 <footer>
-  ※ 引用文献はAPA（心理学）式で自動整形しますが、データ元により著者表記・巻号ページ等が欠けることがあります。提出前に必ず原典と所属先の様式で確認してください。
+  ※ 引用文献は選んだ学会の投稿規定に沿って自動整形します（誌名のイタリック・巻の太字などは画面とWord出力に反映）。データ元により著者表記・巻号ページ等が欠けることがあります。提出前に必ず原典と規定で確認してください。
   &nbsp;/&nbsp; 検索データ提供：CiNii Research・CrossRef。
   &nbsp;/&nbsp; <span id="ver"></span> &nbsp;<a href="#" id="chkupd">更新を確認</a>
 </footer>
@@ -749,7 +829,9 @@ footer{max-width:1320px;margin:0 auto 40px;padding:0 18px;color:var(--gray);font
 <script>
 // ---------- セクション定義（論文全体） ----------
 const GROUPS = [
- {key:"title", name:"表題", sections:[
+ {key:"title", name:"表題",
+  note:"【全体の進め方とコツ】① まず「問題と目的→方法→結果→考察」を書き、要約は最後にまとめる。② 変数の呼び方（〇〇・△△）は最初から最後まで統一する。③ 結果には事実（数値）だけを書き、解釈は考察で述べる。④ 引用は本文と文献リストを必ず一致させ、他者の考えと自分の主張を明確に区別する（剽窃に注意）。⑤ 提出前に、投稿規定と原典で必ず最終確認する。",
+  sections:[
    {id:"title", single:true, title:"表題（タイトル）",
     role:"変数＋関連/効果/比較＋対象。20〜30字。",
     frames:["〇〇と△△の関連 ―― □□を対象とした検討","〇〇が△△に及ぼす影響","大学生における〇〇と△△の関係"]},
@@ -766,10 +848,10 @@ const GROUPS = [
      "キーワード：〇〇、△△、対象、方法"]},
  ]},
  {key:"intro", name:"問題と目的",
-  note:"理想の流れ：導入→定義→類似概念との異同→先行研究→すきま→目的（②〜④を積むとテーマが必然的に導かれる）。",
+  note:"理想の流れ：導入→定義→類似概念との異同→先行研究→すきま→目的（②〜④を積むとテーマが必然的に導かれる）。引用は「著者（年）」で示し、必ず文献リストと対応させる。孫引き（引用の引用）は避け、できる限り原典にあたる。",
   sections:[
    {id:"int1", title:"① 導入（なぜ重要か）",
-    role:"なぜこのテーマが重要か。社会的・学術的な入り口を短く。",
+    role:"まず、その分野の研究者や関心をもつ学習者が興味を引きつけられる一般的な導入から書き、そこから徐々に本研究のテーマへ絞り込む。なぜこのテーマが重要かを、社会的・学術的な入り口として短く示す。",
     frames:["近年、〇〇が急速に広がり、△△への影響が懸念されている。","〇〇は、現代の□□にとって見過ごせない問題である。"]},
    {id:"int2", title:"② 中心概念の定義（出典を示して定義する）",
     role:"本研究で扱う構成概念を、提唱者・理論の出典を示して定義する。",
@@ -794,7 +876,7 @@ const GROUPS = [
     frames:["□□大学の学生N名（男性〇名、女性〇名、平均年齢M歳、SD = 〇）を対象とした。"]},
    {id:"met2", title:"② 調査時期・場所", role:"いつ・どこで実施したか。",
     frames:["20〇〇年〇月に、講義時間の一部を用いて質問紙を配布した。"]},
-   {id:"met3", title:"③ 材料・尺度", role:"何で測ったか（尺度名・項目数・件法・α係数）。",
+   {id:"met3", title:"③ 材料・尺度", role:"何で測ったか（尺度名・項目数・件法・α係数）。尺度は必ず出典（作成者, 年）を示す。既存尺度を改変・利用する場合は著作権・許諾に注意する。",
     frames:["〇〇を測定するため、△△尺度（著者, 年）を用いた。","△△尺度は□項目からなり、「1．あてはまらない」〜「5．あてはまる」の5件法で回答を求めた。","本研究における△△尺度のα係数は .〇〇であった。"]},
    {id:"met4", title:"④ 手続き", role:"どんな流れで実施したか。",
     frames:["回答者に研究の趣旨を説明したうえで、質問紙に個別に回答を求めた。","回答にかかった時間はおよそ〇分であった。"]},
@@ -831,7 +913,7 @@ const GROUPS = [
 const ALL = GROUPS.flatMap(g=>g.sections);
 
 const STORE_KEY = "psychPaperApp.v1";
-let state = {texts:{}, refs:[], figures:[]};
+let state = {texts:{}, refs:[], figures:[], style:"jpa", activeTab:"title"};
 let lastFocused = null;
 function uid(){ return "f"+Date.now()+Math.random().toString(36).slice(2,6); }
 
@@ -841,17 +923,36 @@ function el(tag, cls, htmlStr){const e=document.createElement(tag); if(cls)e.cla
 function renderNav(){
   const nav=document.getElementById("nav"); nav.innerHTML="";
   GROUPS.forEach(g=>{
-    const b=el("button",null,g.name);
-    b.onclick=()=>{ document.getElementById("grp_"+g.key).scrollIntoView({behavior:"smooth",block:"start"}); };
+    const b=el("button",null, g.name+'<span class="tabmark" id="tabmark_'+g.key+'"></span>');
+    b.dataset.key=g.key;
+    b.onclick=()=>showTab(g.key);
     nav.appendChild(b);
   });
+  const rb=el("button",null,"📚 引用文献の整理");
+  rb.dataset.key="refs"; rb.onclick=()=>showTab("refs");
+  nav.appendChild(rb);
+}
+function groupKeyOfSection(id){ for(const g of GROUPS){ if(g.sections.some(s=>s.id===id)) return g.key; } return GROUPS[0].key; }
+function showTab(key){
+  if(!document.getElementById("pane_"+key)) key=GROUPS[0].key;
+  state.activeTab=key; save();
+  document.querySelectorAll(".tabpane").forEach(p=>p.classList.toggle("active", p.dataset.key===key));
+  document.querySelectorAll("#nav button").forEach(b=>b.classList.toggle("active", b.dataset.key===key));
+  window.scrollTo({top:0, behavior:"smooth"});
+}
+function focusSection(id){
+  showTab(groupKeyOfSection(id));
+  const f=document.getElementById("ta_"+id);
+  if(f){ const c=document.getElementById("card_"+id); if(c)c.scrollIntoView({behavior:"smooth",block:"center"}); }
+  return f;
 }
 
 function renderSections(){
   const root=document.getElementById("sections"); root.innerHTML="";
-  GROUPS.forEach(g=>{
-    const gt=el("div","group-title",g.name); gt.id="grp_"+g.key; root.appendChild(gt);
-    if(g.note) root.appendChild(el("div","group-note","💡 "+g.note));
+  GROUPS.forEach((g,gi)=>{
+    const pane=el("div","tabpane"); pane.id="pane_"+g.key; pane.dataset.key=g.key;
+    const head=el("div","pane-head"); head.appendChild(el("span",null,g.name)); pane.appendChild(head);
+    if(g.note) pane.appendChild(el("div","group-note","💡 "+g.note));
     g.sections.forEach(sec=>{
       const c=el("div","card"); c.id="card_"+sec.id;
       c.appendChild(el("h3",null,sec.title));
@@ -876,9 +977,39 @@ function renderSections(){
         cbtn.onclick=(ev)=>{ ev.stopPropagation(); lastFocused=sec.id; openCitePicker(field, cbtn); };
         c.appendChild(cbtn);
       }
-      root.appendChild(c);
+      pane.appendChild(c);
     });
+    const pn=el("div","pane-nav");
+    const prev=el("button",null,"← 前へ"); prev.disabled=(gi===0); prev.onclick=()=>showTab(GROUPS[gi-1].key);
+    const isLast=(gi===GROUPS.length-1);
+    const next=el("button",null, isLast?"引用文献の整理 →":"次へ →");
+    next.onclick=()=>showTab(isLast? "refs" : GROUPS[gi+1].key);
+    pn.appendChild(prev); pn.appendChild(next); pane.appendChild(pn);
+    root.appendChild(pane);
   });
+
+  // ---- 引用文献の整理タブ ----
+  const rp=el("div","tabpane"); rp.id="pane_refs"; rp.dataset.key="refs";
+  const rh=el("div","pane-head"); rh.appendChild(el("span",null,"引用文献の整理")); rp.appendChild(rh);
+  rp.appendChild(el("div","group-note","💡 追加した文献の並び順（よみ）・削除をまとめて管理できます（右側の一覧と同じ内容）。文献の追加は右上の「文献をさがして取り込む」から。"));
+  const srow=el("div","srcrow"); srow.style.marginBottom="10px";
+  const lab=el("label",null,"投稿規定："); lab.style.color="var(--blue-d)"; lab.style.fontWeight="600"; srow.appendChild(lab);
+  const sel2=el("select"); sel2.id="styleSel2"; sel2.className="reading"; sel2.style.width="auto"; sel2.style.flex="1";
+  [["jpa","日本心理学会（心理学研究）"],["ajcp","日本心理臨床学会（心理臨床学研究）"],["jhp","日本人間性心理学会（人間性心理学研究）"]].forEach(function(o){ const op=el("option",null,o[1]); op.value=o[0]; sel2.appendChild(op); });
+  sel2.value=state.style||"jpa";
+  sel2.onchange=function(e){ state.style=e.target.value; const s1=document.getElementById("styleSel"); if(s1)s1.value=e.target.value; save(); renderRefs(); };
+  srow.appendChild(sel2); rp.appendChild(srow);
+  const hd=el("div"); hd.style.margin="6px 0"; hd.innerHTML='<b style="color:var(--blue-d)">文献一覧</b> <span id="refcount2" class="sub" style="color:var(--gray)"></span>';
+  rp.appendChild(hd);
+  const ul2=el("ul","reflist"); ul2.id="reflist2"; rp.appendChild(ul2);
+  const emp2=el("div","empty","まだ文献がありません。右上の「文献をさがして取り込む」で検索して追加してください。"); emp2.id="refempty2"; rp.appendChild(emp2);
+  const cp=el("div","export"); cp.style.marginTop="8px";
+  const cb=el("button","ghost sm","引用文献リストをコピー"); cb.onclick=function(){ copy(sortedRefs().map(function(r){return refPlain(r);}).join("\n"),"引用文献リストをコピーしました"); };
+  cp.appendChild(cb); rp.appendChild(cp);
+  const bk=el("div","pane-nav");
+  const bkb=el("button",null,"← 本文（考察）へ"); bkb.onclick=()=>showTab(GROUPS[GROUPS.length-1].key);
+  bk.appendChild(bkb); bk.appendChild(el("span")); rp.appendChild(bk);
+  root.appendChild(rp);
 }
 
 function renderProgress(){
@@ -886,6 +1017,11 @@ function renderProgress(){
   const pct=Math.round(done/ALL.length*100);
   document.getElementById("pbarfill").style.width=pct+"%";
   document.getElementById("pnum").textContent=done+" / "+ALL.length+" セクション記入済み（"+pct+"%）";
+  GROUPS.forEach(g=>{
+    const m=document.getElementById("tabmark_"+g.key); if(!m)return;
+    const f=g.sections.filter(s=>(state.texts[s.id]||"").trim().length>0).length, t=g.sections.length;
+    m.textContent = f===0? "" : (f===t? "✓" : "("+f+"/"+t+")");
+  });
 }
 
 // ---------- 挿入 ----------
@@ -898,7 +1034,7 @@ function insertAtCursor(field, text){
 }
 function insertInText(ref){
   const id=lastFocused||ALL.find(s=>!s.single).id;
-  const field=document.getElementById("ta_"+id);
+  const field=focusSection(id);
   if(!field){ alert("挿入先の欄を一度クリックしてから押してください。"); return; }
   insertAtCursor(field, inTextToken(ref));
 }
@@ -932,16 +1068,23 @@ function openCitePicker(field, anchor){
 
 // ---------- 文献の整形 ----------
 function isJa(s){ return /[぀-ヿ㐀-鿿一-龥]/.test(s||""); }
-function nameForRef(a){
-  if(isJa(a.raw)){ return (a.family+a.given).replace(/\s+/g,"")||a.raw; }
-  if(a.family){ const init=a.given? " "+a.given.split(/\s+/).map(x=>x[0]?x[0]+".":"").join(" "):""; return init?(a.family+","+init):a.family; }
+function curStyle(){ return (state&&state.style)||"jpa"; }
+function nameForRef(a, style){
+  style=style||curStyle();
+  if(isJa(a.raw)){
+    const fam=(a.family||"").trim(), giv=(a.given||"").trim();
+    if(style==="jpa") return ((fam+" "+giv).trim())||a.raw;   // 姓 名（半角空け）＝日本心理学会
+    return (fam+giv).replace(/\s+/g,"")||a.raw;               // 姓名（続け書き）
+  }
+  if(a.family){ const init=a.given? " "+a.given.split(/\s+/).filter(Boolean).map(x=>x[0].toUpperCase()+".").join(" "):""; return init?(a.family+","+init):a.family; }
   return a.raw;
 }
 function surname(a){ return a.family||a.raw; }
-function authorsForRef(ref){
+function authorsForRef(ref, style){
+  style=style||curStyle();
   const A=ref.authors||[]; if(A.length===0) return "著者不明";
   const ja=isJa(ref.title)||(A[0]&&isJa(A[0].raw));
-  const names=A.map(nameForRef);
+  const names=A.map(a=>nameForRef(a, style));
   if(ja) return names.join("・");
   if(names.length===1) return names[0];
   return names.slice(0,-1).join(", ")+", & "+names[names.length-1];
@@ -954,21 +1097,65 @@ function inTextToken(ref){
   if(A.length===2) return "（"+surname(A[0])+(ja?"・":" & ")+surname(A[1])+", "+y+"）";
   return "（"+surname(A[0])+(ja?"ら":" et al.")+", "+y+"）";
 }
-function formatReference(ref){
-  const ja=isJa(ref.title);
-  const y=ref.year? "（"+ref.year+"）":"（n.d.）";
-  let s=authorsForRef(ref)+y+(ja?"．":". ")+ref.title+(ja?"．":". ");
-  if(ref.journal){
-    s+=ref.journal; let vp="";
-    if(ref.volume) vp+=ref.volume;
-    if(ref.number) vp+="("+ref.number+")";
-    if(vp) s+=", "+vp;
-    if(ref.spage) s+=", "+ref.spage+(ref.epage? "–"+ref.epage:"");
-    s+=".";
-  }else if(ref.publisher){ s+=ref.publisher+"."; }
-  if(ref.doi) s+=" https://doi.org/"+ref.doi;
-  return s;
+// 投稿規定別に文献1件を「ラン（装飾つき断片）」の配列で返す
+function refRuns(ref, style){
+  style=style||curStyle();
+  const R=[]; const push=(t,i,b)=>{ if(t!==""&&t!=null) R.push({t:String(t), i:!!i, b:!!b}); };
+  const A=ref.authors||[];
+  const ja = isJa(ref.title) || (A[0]&&isJa(A[0].raw));
+  const authors = authorsForRef(ref, style);
+  const y = ref.year || "n.d.";
+  const isArticle = !!ref.journal;
+  const latinJ = ref.journal && !isJa(ref.journal);
+  const latinT = ref.title && !isJa(ref.title);
+  const dash = (style==="jpa") ? "–" : "-";
+  const pages = ref.spage ? (ref.spage + (ref.epage? dash+ref.epage : "")) : "";
+  const volI = (style==="jpa"), volB = (style==="ajcp");   // 巻の装飾
+  const doi = ref.doi ? (" https://doi.org/"+ref.doi) : "";
+
+  if(ja){
+    push(authors + "（" + y + (style==="jhp" ? "）：" : "）．"));
+    if(isArticle){
+      push(ref.title + (style==="ajcp" ? "．" : "　"));       // ajcpは表題．／他は全角空け
+      push(ref.journal, latinJ, false);
+      if(style==="jhp"){
+        if(ref.volume){ push("　"); push(ref.volume + (ref.number? "("+ref.number+")":"")); }
+        if(pages) push((ref.volume?", ":"　") + pages);
+        push(".");
+      }else{
+        push(", ");
+        if(ref.volume) push(ref.volume, volI, volB);
+        if(ref.number) push("("+ref.number+")");
+        if(pages) push((ref.volume||ref.number? ", ":"") + pages);
+        push(".");
+      }
+    }else{
+      push(ref.title, latinT, false); push(style==="ajcp" ? "．" : "　");
+      if(ref.publisher) push(ref.publisher + (style==="jpa" ? "" : "."));
+    }
+  }else{
+    push(authors + " (" + y + (style==="jhp" ? "): " : "). "));
+    if(isArticle){
+      push(ref.title + ". ");
+      push(ref.journal, true, false);
+      push(", ");
+      if(ref.volume) push(ref.volume, volI, volB);
+      if(ref.number) push("("+ref.number+")");
+      if(pages) push((ref.volume||ref.number? ", ":"") + pages);
+      push(".");
+    }else{
+      push(ref.title + ". ", true, false);
+      if(ref.publisher) push(ref.publisher + ".");
+    }
+  }
+  if(doi && style!=="jhp") push(doi);   // jhpはDOIを付けない（規定例に準拠）
+  return R;
 }
+function refPlain(ref, style){ return refRuns(ref, style).map(r=>r.t).join(""); }
+function refHtml(ref, style){
+  return refRuns(ref, style).map(r=>{ let t=escapeHtml(r.t); if(r.b)t="<b>"+t+"</b>"; if(r.i)t="<i>"+t+"</i>"; return t; }).join("");
+}
+function formatReference(ref, style){ return refPlain(ref, style); }  // 互換（テキスト用）
 function refSortKey(r){
   if(r.reading && r.reading.trim()) return r.reading.trim().toLowerCase();
   const a=r.authors&&r.authors[0];
@@ -980,27 +1167,32 @@ function sortedRefs(){
     return ka.localeCompare(kb,"ja");
   });
 }
+function buildRefLi(ref){
+  const li=el("li");
+  li.appendChild(el("div","cite",refHtml(ref)));
+  const row=el("div","row");
+  row.appendChild(el("span","intoken","本文引用: "+inTextToken(ref)));
+  const bIns=el("button","sm","本文に挿入"); bIns.onclick=()=>insertInText(ref); row.appendChild(bIns);
+  if(isJa(ref.title)||(ref.authors[0]&&isJa(ref.authors[0].raw))){
+    const ri=el("input"); ri.className="reading"; ri.placeholder="よみ（例: うえにし）";
+    ri.value=ref.reading||""; ri.title="並び順の基準（五十音／アルファベット）";
+    ri.addEventListener("input",()=>{ ref.reading=ri.value; save(); });
+    ri.addEventListener("change",()=>{ ref.reading=ri.value; save(); renderRefs(); });
+    row.appendChild(el("span","rlabel","よみ:")); row.appendChild(ri);
+  }
+  const bDel=el("button","ghost mini","削除"); bDel.style.color="#b00"; bDel.style.borderColor="#e3b7b7";
+  bDel.onclick=()=>{ state.refs=state.refs.filter(r=>r._id!==ref._id); save(); renderRefs(); }; row.appendChild(bDel);
+  li.appendChild(row);
+  return li;
+}
 function renderRefs(){
-  const ul=document.getElementById("reflist"); ul.innerHTML="";
   const refs=sortedRefs();
-  document.getElementById("refempty").style.display=refs.length?"none":"block";
-  document.getElementById("refcount").textContent=refs.length?"（"+refs.length+"件）":"";
-  refs.forEach(ref=>{
-    const li=el("li");
-    li.appendChild(el("div","cite",formatReference(ref)));
-    const row=el("div","row");
-    row.appendChild(el("span","intoken","本文引用: "+inTextToken(ref)));
-    const bIns=el("button","sm","本文に挿入"); bIns.onclick=()=>insertInText(ref); row.appendChild(bIns);
-    if(isJa(ref.title)||(ref.authors[0]&&isJa(ref.authors[0].raw))){
-      const ri=el("input"); ri.className="reading"; ri.placeholder="よみ（例: うえにし）";
-      ri.value=ref.reading||""; ri.title="並び順の基準（五十音／アルファベット）";
-      ri.addEventListener("input",()=>{ ref.reading=ri.value; save(); });
-      ri.addEventListener("change",()=>{ ref.reading=ri.value; save(); renderRefs(); });
-      row.appendChild(el("span","rlabel","よみ:")); row.appendChild(ri);
-    }
-    const bDel=el("button","ghost mini","削除"); bDel.style.color="#b00"; bDel.style.borderColor="#e3b7b7";
-    bDel.onclick=()=>{ state.refs=state.refs.filter(r=>r._id!==ref._id); save(); renderRefs(); }; row.appendChild(bDel);
-    li.appendChild(row); ul.appendChild(li);
+  [["reflist","refempty","refcount"],["reflist2","refempty2","refcount2"]].forEach(function(t){
+    const ul=document.getElementById(t[0]); if(!ul) return;
+    ul.innerHTML="";
+    const emp=document.getElementById(t[1]); if(emp) emp.style.display=refs.length?"none":"block";
+    const cnt=document.getElementById(t[2]); if(cnt) cnt.textContent=refs.length?"（"+refs.length+"件）":"";
+    refs.forEach(ref=> ul.appendChild(buildRefLi(ref)));
   });
 }
 
@@ -1077,7 +1269,7 @@ function renderMiniTable(fig){
 function insertFigRef(fig){
   const label=figNumbers()[fig.id];
   const id=lastFocused||ALL.find(s=>!s.single).id;
-  const field=document.getElementById("ta_"+id);
+  const field=focusSection(id);
   if(!field){ alert("挿入先の欄を一度クリックしてから押してください。"); return; }
   insertAtCursor(field, label);
 }
@@ -1218,7 +1410,7 @@ function buildDocModel(){
     });
   });
   blocks.push({type:"heading",level:1,text:"引用文献"});
-  sortedRefs().forEach(r=>blocks.push({type:"para",text:formatReference(r)}));
+  sortedRefs().forEach(r=>blocks.push({type:"refpara",runs:refRuns(r)}));
   const left=state.figures.filter(f=>!placed.has(map[f.id]));
   if(left.length){ blocks.push({type:"heading",level:1,text:"図表"}); left.forEach(f=>blocks.push(figBlock(f))); }
   return {blocks};
@@ -1244,7 +1436,7 @@ function toast(m){ document.getElementById("status").textContent=m; }
 // ---------- 保存 ----------
 let saveTimer=null;
 function save(){ clearTimeout(saveTimer); saveTimer=setTimeout(()=>{ try{ localStorage.setItem(STORE_KEY,JSON.stringify(state)); }catch(e){ toast("⚠ 保存容量を超えました。画像の数を減らすか小さくしてください。"); } },250); }
-function load(){ try{ const s=localStorage.getItem(STORE_KEY); if(s){ state=JSON.parse(s); state.texts=state.texts||{}; state.refs=state.refs||[]; state.figures=state.figures||[]; } }catch(e){} }
+function load(){ try{ const s=localStorage.getItem(STORE_KEY); if(s){ state=JSON.parse(s); state.texts=state.texts||{}; state.refs=state.refs||[]; state.figures=state.figures||[]; state.style=state.style||"jpa"; } }catch(e){} }
 function escapeHtml(s){ return (s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 // ---------- 更新チェック ----------
@@ -1265,11 +1457,19 @@ async function checkUpdate(manual){
 
 // ---------- 初期化 ----------
 load(); renderNav(); renderSections(); renderProgress(); renderRefs(); renderFigures();
+showTab(state.activeTab || "title");
+document.getElementById("styleSel").value = state.style || "jpa";
 checkUpdate(false);
 document.getElementById("chkupd").onclick=(e)=>{ e.preventDefault(); checkUpdate(true); };
 document.getElementById("searchBtn").onclick=doSearch;
 document.getElementById("q").addEventListener("keydown",e=>{ if(e.key==="Enter")doSearch(); });
-document.getElementById("copyRefs").onclick=()=>copy(sortedRefs().map(formatReference).join("\n"),"引用文献リストをコピーしました");
+document.getElementById("scholarBtn").onclick=()=>{
+  const q=document.getElementById("q").value.trim();
+  window.open("https://scholar.google.com/scholar?q="+encodeURIComponent(q), "_blank", "noopener");
+  toast("Google Scholarを開きました。見つけた論文は、題名でCiNii/OpenAlex検索すると取り込めます。");
+};
+document.getElementById("copyRefs").onclick=()=>copy(sortedRefs().map(r=>refPlain(r)).join("\n"),"引用文献リストをコピーしました");
+document.getElementById("styleSel").onchange=(e)=>{ state.style=e.target.value; const s2=document.getElementById("styleSel2"); if(s2)s2.value=e.target.value; save(); renderRefs(); };
 document.getElementById("dlDocx").onclick=exportDocx;
 document.getElementById("copyAll").onclick=()=>copy(assemble(false),"論文全体をコピーしました");
 document.getElementById("dlMd").onclick=()=>download("心理学論文_原稿.md",assemble(true));
@@ -1278,7 +1478,7 @@ document.getElementById("addTableBtn").onclick=()=>document.getElementById("tabl
 document.getElementById("addFigBtn").onclick=()=>document.getElementById("figFile").click();
 document.getElementById("tableFile").addEventListener("change",e=>{ const f=e.target.files[0]; if(f) addTableFile(f); e.target.value=""; });
 document.getElementById("figFile").addEventListener("change",e=>{ const f=e.target.files[0]; if(f) addImageFile(f); e.target.value=""; });
-document.getElementById("clearAll").onclick=()=>{ if(confirm("入力・文献・図表をすべて消去します。よろしいですか？")){ state={texts:{},refs:[],figures:[]}; save(); renderSections(); renderProgress(); renderRefs(); renderFigures(); } };
+document.getElementById("clearAll").onclick=()=>{ if(confirm("入力・文献・図表をすべて消去します。よろしいですか？")){ const st=state.style; state={texts:{},refs:[],figures:[],style:st}; save(); renderSections(); renderProgress(); renderRefs(); renderFigures(); } };
 </script>
 </body>
 </html>
