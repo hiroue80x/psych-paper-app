@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>心理学 論文執筆アプリ｜ダウンロードと使い方</title>
+<style>
+:root{
+  --blue:#2e6da4; --blue-d:#1f5c99; --bg:#f4f7fb; --card:#fff; --line:#dbe3ec;
+  --ink:#1d2733; --gray:#5a6675; --win:#0a6ebd; --mac:#444; --ok:#2e8b57; --warn:#b25900;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Hiragino Sans","Yu Gothic","Meiryo",system-ui,sans-serif;line-height:1.75}
+.wrap{max-width:920px;margin:0 auto;padding:0 18px}
+header{background:linear-gradient(135deg,#2e6da4,#295f90);color:#fff;padding:38px 0 30px;text-align:center}
+header h1{margin:0 0 8px;font-size:26px}
+header p{margin:0;color:#dce9f7;font-size:15px}
+.osbadge{display:inline-block;margin-top:16px;background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.35);
+  border-radius:20px;padding:6px 16px;font-size:13px}
+h2{font-size:19px;color:var(--blue-d);margin:34px 0 14px;border-left:5px solid var(--blue);padding-left:10px}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:640px){.cards{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:0 2px 6px rgba(0,0,0,.04);position:relative}
+.card.reco{border-color:var(--blue);box-shadow:0 6px 20px rgba(46,109,164,.16)}
+.card .os{font-size:34px}
+.card h3{margin:6px 0 2px;font-size:18px}
+.card .meta{color:var(--gray);font-size:12.5px;margin-bottom:14px}
+.reco-tag{position:absolute;top:-11px;left:20px;background:var(--blue);color:#fff;font-size:11.5px;
+  padding:3px 10px;border-radius:10px;display:none}
+.card.reco .reco-tag{display:inline-block}
+.dl{display:block;text-align:center;background:var(--blue);color:#fff;text-decoration:none;
+  padding:12px;border-radius:10px;font-weight:700;font-size:15px;transition:.15s}
+.dl:hover{background:var(--blue-d)}
+.req{font-size:12.5px;color:var(--gray);margin-top:12px}
+.req b{color:var(--ink)}
+.steps{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:8px 6px}
+.steps .tabbar{display:flex;gap:6px;padding:8px 10px 0}
+.steps .tabbar button{flex:1;background:#eef3fa;border:0;border-radius:10px 10px 0 0;padding:10px;font-size:14px;
+  font-family:inherit;cursor:pointer;color:var(--blue-d);font-weight:700}
+.steps .tabbar button.active{background:var(--blue);color:#fff}
+.steps .body{padding:16px 18px}
+ol{margin:0;padding-left:1.3em}
+ol li{margin-bottom:9px}
+.tag{display:inline-block;background:#eef3fa;border:1px solid #d7e3f2;border-radius:6px;padding:1px 7px;font-size:12px;color:var(--blue-d)}
+.note{background:#fff8e1;border:1px solid #f0d9a0;color:#7a5b00;border-radius:10px;padding:12px 14px;font-size:13px;margin-top:12px}
+.use{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 20px}
+.use ol li{margin-bottom:11px}
+.kbd{background:#eef1f5;border:1px solid #d3dae2;border-bottom-width:2px;border-radius:5px;padding:1px 7px;font-size:12.5px}
+footer{color:var(--gray);font-size:12px;text-align:center;padding:30px 18px 50px;line-height:1.9}
+footer a{color:var(--blue-d)}
+.hide{display:none}
+</style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>心理学 論文執筆アプリ</h1>
+    <p>タブで「表題→要約→問題と目的→方法→結果→考察」を書き、文献はCiNii/OpenAlex/CrossRefから取り込み。<br>投稿規定を選べば引用文献リストを自動整形、Word（図表入り）で書き出せます。</p>
+    <div class="osbadge" id="osbadge">お使いの環境を判定しています…</div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <h2>1. ダウンロード</h2>
+  <div class="cards">
+    <div class="card" id="card-win">
+      <span class="reco-tag">あなたのPCはこちら</span>
+      <div class="os">🪟</div>
+      <h3>Windows 版</h3>
+      <div class="meta">Python同梱・インストール不要／約11MB・ZIP</div>
+      <a class="dl" href="https://github.com/hiroue80x/psych-paper-app/releases/latest/download/psych-paper-app-windows.zip">⬇ Windows版をダウンロード</a>
+      <p class="req"><b>準備：</b>不要（そのまま動きます）</p>
+    </div>
+    <div class="card" id="card-mac">
+      <span class="reco-tag">あなたのPCはこちら</span>
+      <div class="os">🍎</div>
+      <h3>Mac 版</h3>
+      <div class="meta">OS標準のPythonを使用／軽量・ZIP</div>
+      <a class="dl" href="https://github.com/hiroue80x/psych-paper-app/releases/latest/download/psych-paper-app-mac.zip">⬇ Mac版をダウンロード</a>
+      <p class="req"><b>準備：</b>初回だけPython導入（Apple公式・無料）が走る場合があります</p>
+    </div>
+  </div>
+
+  <h2>2. 起動のしかた</h2>
+  <div class="steps">
+    <div class="tabbar">
+      <button id="tab-win" class="active" onclick="showOS('win')">🪟 Windows</button>
+      <button id="tab-mac" onclick="showOS('mac')">🍎 Mac</button>
+    </div>
+    <div class="body">
+      <div id="body-win">
+        <ol>
+          <li>ダウンロードした ZIP を<b>右クリック →「すべて展開」</b>で展開する（中身のまま実行すると動きません）。</li>
+          <li>出てきたフォルダの中の <span class="tag">起動.bat</span> を<b>ダブルクリック</b>。</li>
+          <li>黒い画面が出て、ブラウザが自動で開きます（開かなければ <span class="kbd">http://127.0.0.1:8791/</span> を貼り付け）。</li>
+          <li>終わるときは、その黒い画面（ウィンドウ）を閉じます。</li>
+        </ol>
+        <div class="note">初回に「WindowsによってPCが保護されました」と出たら →「<b>詳細情報</b>」→「<b>実行</b>」で起動できます（自作アプリのための確認です）。</div>
+      </div>
+      <div id="body-mac" class="hide">
+        <ol>
+          <li>ダウンロードした ZIP をダブルクリックして展開する。</li>
+          <li>フォルダ内の <span class="tag">起動.command</span> を、<b>初回だけ 右クリック →「開く」→ もう一度「開く」</b>（2回目以降はダブルクリックでOK）。</li>
+          <li>黒い画面が出て、ブラウザが自動で開きます（開かなければ <span class="kbd">http://127.0.0.1:8791/</span> を貼り付け）。</li>
+          <li>終わるときは、その黒い画面（ターミナル）を閉じます。</li>
+        </ol>
+        <div class="note">「Python3 が見つかりません」と出たら、画面の案内（Apple公式ツールの「インストール」）に従い、数分待って完了後にもう一度 起動.command を実行してください（1回だけの作業です）。</div>
+      </div>
+    </div>
+  </div>
+
+  <h2>3. かんたんな使い方</h2>
+  <div class="use">
+    <ol>
+      <li><b>上のタブでページを切り替えて書く</b>（表題／要約／問題と目的／方法／結果／考察）。各欄の「言い回しチップ」を押すと下書きが入るので、<b>〇〇・△△を自分の研究の言葉に置きかえる</b>。</li>
+      <li><b>文献をさがす</b>：右側で <span class="tag">CiNii（和文）</span> <span class="tag">OpenAlex（国際）</span> <span class="tag">CrossRef（欧文）</span> を選んで検索 →「＋文献に追加」。</li>
+      <li><b>投稿規定を選ぶ</b>：日本心理学会／日本心理臨床学会／日本人間性心理学会。選んだ書式で<b>引用文献リストが自動整形</b>されます。</li>
+      <li><b>本文に引用を挿入</b>：各セクションの「＋本文に引用を挿入」で <b>（著者, 年）</b> をその場に差し込み。</li>
+      <li><b>図表を入れる</b>：右の「図表を取り込む」で Excel/CSV（表）や画像（図）を追加。本文に「表1」「図1」と書くと、Word出力でその位置に入ります。</li>
+      <li><b>書き出す</b>：「📄 Wordで保存（図表入り）」で完成原稿（.docx）をダウンロード。コピーやテキスト保存も可能。</li>
+    </ol>
+    <div class="note">入力はブラウザに自動保存されます。引用文献は選んだ学会の規定で自動整形しますが、データ元により著者表記・巻号・ページが欠けることがあります。<b>提出前に必ず原典と投稿規定で確認</b>してください。</div>
+  </div>
+
+  <h2>4. 更新について</h2>
+  <div class="use">
+    <p style="margin:0">新しい版が出ると、アプリ起動時に画面上部で「🔔 新しい版があります」とお知らせします。その際は、このページから最新版を入手して入れ替えてください。現在のバージョンはアプリ画面の一番下に表示されます。</p>
+  </div>
+
+</div>
+
+<footer>
+  検索データ提供：CiNii Research・OpenAlex・CrossRef ／
+  ダウンロード一覧：<a href="https://github.com/hiroue80x/psych-paper-app/releases/latest">最新リリース</a><br>
+  ※ 本アプリは論文執筆を補助するツールです。最終的な体裁・内容は各自の責任で確認してください。
+</footer>
+
+<script>
+(function(){
+  var ua=(navigator.userAgent||"")+" "+(navigator.platform||"");
+  var isMac=/Mac|iPhone|iPad|iPod/i.test(ua) && !/Windows/i.test(ua);
+  var isWin=/Win/i.test(ua);
+  var badge=document.getElementById("osbadge");
+  if(isMac){
+    badge.textContent="🍎 Mac をお使いのようです — 下の「Mac版」をどうぞ";
+    document.getElementById("card-mac").classList.add("reco");
+    showOS("mac");
+  }else if(isWin){
+    badge.textContent="🪟 Windows をお使いのようです — 下の「Windows版」をどうぞ";
+    document.getElementById("card-win").classList.add("reco");
+    showOS("win");
+  }else{
+    badge.textContent="お使いのOSのボタンからダウンロードしてください";
+  }
+})();
+function showOS(os){
+  document.getElementById("body-win").classList.toggle("hide", os!=="win");
+  document.getElementById("body-mac").classList.toggle("hide", os!=="mac");
+  document.getElementById("tab-win").classList.toggle("active", os==="win");
+  document.getElementById("tab-mac").classList.toggle("active", os==="mac");
+}
+</script>
+</body>
+</html>
