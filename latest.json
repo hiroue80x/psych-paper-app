@@ -1,5 +1,5 @@
 {
-  "version": "1.0.0",
-  "note": "",
-  "download": "https://raw.githubusercontent.com/hiroue80x/psych-paper-app/main/app.py"
+  "version": "1.3.0",
+  "note": "各セクションをタブ化し「引用文献の整理」タブを追加。導入の説明や執筆のコツも追記しました。",
+  "download": "https://github.com/hiroue80x/psych-paper-app/releases/latest"
 }
