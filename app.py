@@ -32,7 +32,7 @@ APP_VERSION = "1.0.0"
 # 起動時に新版の有無を知らせます（コードは自動では置き換えません＝安全）。
 # 例: "https://raw.githubusercontent.com/<ユーザー>/<リポジトリ>/main/latest.json"
 # JSONの形式: {"version":"1.1.0","note":"説明","download":"https://…/app.py の入手先"}
-UPDATE_URL = ""
+UPDATE_URL = "https://raw.githubusercontent.com/hiroue80x/psych-paper-app/main/latest.json"
 
 
 # ----------------------------------------------------------------------
